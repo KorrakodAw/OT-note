@@ -1,0 +1,259 @@
+@page "/"
+@using OtNote.Models
+@using OtNote.Services
+@inject OtNoteService NoteService
+@inject IJSRuntime JS
+
+<PageTitle>OT Note Calendar</PageTitle>
+
+<div class="ot-app">
+    <header class="ot-header">
+        <div class="ot-title">
+            <h1>OT Note</h1>
+            <span class="ot-subtitle">Overtime tracker</span>
+        </div>
+        <div class="ot-month-nav">
+            <button class="btn btn-icon" @onclick="GoToPreviousMonth" title="Previous month">‹</button>
+            <div class="ot-month-label">@_currentMonth.ToString("MMMM yyyy")</div>
+            <button class="btn btn-icon" @onclick="GoToNextMonth" title="Next month">›</button>
+            <button class="btn btn-today" @onclick="GoToToday">Today</button>
+        </div>
+        <div class="ot-month-total">
+            <span class="total-label">This month</span>
+            <span class="total-value">@_monthTotalHours.ToString("0.##") h</span>
+        </div>
+    </header>
+
+    <div class="ot-weekday-row">
+        @foreach (var wd in _weekdayNames)
+        {
+            <div class="ot-weekday">@wd</div>
+        }
+    </div>
+
+    <div class="ot-grid">
+        @foreach (var cell in _cells)
+        {
+            var isToday = cell.Date == DateOnly.FromDateTime(DateTime.Today);
+            <div class="ot-cell @(cell.InCurrentMonth ? "" : "muted") @(isToday ? "today" : "")"
+                 @onclick="() => OpenDay(cell.Date)">
+                <div class="ot-cell-header">
+                    <span class="ot-day-num">@cell.Date.Day</span>
+                    @if (_entryByDate.TryGetValue(cell.Date, out var hoursForBadge))
+                    {
+                        <span class="ot-badge">@hoursForBadge.Hours.ToString("0.##")h</span>
+                    }
+                </div>
+                @if (_entryByDate.TryGetValue(cell.Date, out var entry))
+                {
+                    <div class="ot-cell-tasks">
+                        <div class="ot-cell-task" title="@entry.Task">@entry.Task</div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (_selectedDate is not null)
+{
+    <div class="ot-modal-backdrop" @onclick="CloseModal">
+        <div class="ot-modal" @onclick:stopPropagation="true">
+            <div class="ot-modal-header">
+                <h2>@_selectedDate.Value.ToString("dddd, dd MMMM yyyy")</h2>
+                <button class="btn btn-icon" @onclick="CloseModal">✕</button>
+            </div>
+
+            <div class="ot-modal-body">
+                @if (_existingEntry is not null && !_isEditing)
+                {
+                    <div class="ot-entry-item">
+                        <div class="ot-entry-main">
+                            <div class="ot-entry-title">@_existingEntry.Task</div>
+                            <div class="ot-entry-meta">
+                                @if (_existingEntry.StartTime is not null && _existingEntry.EndTime is not null)
+                                {
+                                    <span>@_existingEntry.StartTime.Value.ToString("HH:mm") – @_existingEntry.EndTime.Value.ToString("HH:mm")</span>
+                                }
+                                <span class="ot-entry-hours">@_existingEntry.Hours.ToString("0.##") h</span>
+                            </div>
+                        </div>
+                        <div class="ot-entry-actions">
+                            <button class="btn btn-link" @onclick="StartEdit">Edit</button>
+                            <button class="btn btn-link btn-danger" @onclick="DeleteEntry">Delete</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <EditForm Model="_form" OnValidSubmit="SaveEntry">
+                        <div class="ot-form-row-2">
+                            <label>
+                                Start time
+                                <InputText type="time" @bind-Value="_form.StartTimeText" />
+                            </label>
+                            <label>
+                                Hours
+                                <InputNumber step="0.25" @bind-Value="_form.Hours" />
+                            </label>
+                        </div>
+                        <label class="ot-form-full">
+                            Task / reason
+                            <InputText @bind-Value="_form.Task" placeholder="e.g. Month-end reconciliation" />
+                        </label>
+                        <div class="ot-form-actions">
+                            @if (_existingEntry is not null)
+                            {
+                                <button type="button" class="btn" @onclick="CancelEdit">Cancel</button>
+                            }
+                            <button type="submit" class="btn btn-primary">@(_existingEntry is null ? "Add" : "Save changes")</button>
+                        </div>
+                    </EditForm>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private sealed record DayCell(DateOnly Date, bool InCurrentMonth);
+
+    private sealed class EntryForm
+    {
+        public string StartTimeText { get; set; } = "17:30";
+        public double Hours { get; set; } = 1;
+        public string Task { get; set; } = "";
+    }
+
+    private DateOnly _currentMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private readonly string[] _weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    private List<DayCell> _cells = [];
+    private Dictionary<DateOnly, OtEntry> _entryByDate = [];
+    private double _monthTotalHours;
+
+    private DateOnly? _selectedDate;
+    private OtEntry? _existingEntry;
+    private bool _isEditing;
+    private EntryForm _form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMonthAsync();
+    }
+
+    private async Task LoadMonthAsync()
+    {
+        var monthEntries = await NoteService.GetForMonthAsync(_currentMonth.Year, _currentMonth.Month);
+        _entryByDate = monthEntries.ToDictionary(e => e.Date);
+        _monthTotalHours = monthEntries.Sum(e => e.Hours);
+        BuildCells();
+    }
+
+    private void BuildCells()
+    {
+        _cells.Clear();
+        var firstOfMonth = _currentMonth;
+        // ISO weekday: Monday=1 .. Sunday=7
+        var firstWeekday = (int)firstOfMonth.DayOfWeek == 0 ? 7 : (int)firstOfMonth.DayOfWeek;
+        var leadingDays = firstWeekday - 1;
+
+        var gridStart = firstOfMonth.AddDays(-leadingDays);
+        var totalCells = 42; // 6 weeks, fixed grid to avoid layout shift
+        for (var i = 0; i < totalCells; i++)
+        {
+            var date = gridStart.AddDays(i);
+            _cells.Add(new DayCell(date, date.Month == firstOfMonth.Month));
+        }
+    }
+
+    private async Task GoToPreviousMonth()
+    {
+        _currentMonth = _currentMonth.AddMonths(-1);
+        await LoadMonthAsync();
+    }
+
+    private async Task GoToNextMonth()
+    {
+        _currentMonth = _currentMonth.AddMonths(1);
+        await LoadMonthAsync();
+    }
+
+    private async Task GoToToday()
+    {
+        _currentMonth = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1);
+        await LoadMonthAsync();
+    }
+
+    private async Task OpenDay(DateOnly date)
+    {
+        _selectedDate = date;
+        _existingEntry = await NoteService.GetForDateAsync(date);
+        _isEditing = false;
+        ResetForm();
+    }
+
+    private void CloseModal()
+    {
+        _selectedDate = null;
+        _existingEntry = null;
+        _isEditing = false;
+        ResetForm();
+    }
+
+    private void ResetForm()
+    {
+        _form = new EntryForm();
+    }
+
+    private void StartEdit()
+    {
+        if (_existingEntry is null) return;
+        _isEditing = true;
+        _form = new EntryForm
+        {
+            StartTimeText = _existingEntry.StartTime?.ToString("HH:mm") ?? "17:30",
+            Hours = _existingEntry.Hours,
+            Task = _existingEntry.Task,
+        };
+    }
+
+    private void CancelEdit()
+    {
+        _isEditing = false;
+        ResetForm();
+    }
+
+    private async Task SaveEntry()
+    {
+        if (_selectedDate is null) return;
+
+        TimeOnly? start = TimeOnly.TryParse(_form.StartTimeText, out var s) ? s : null;
+        var hours = _form.Hours > 0 ? _form.Hours : 1;
+        TimeOnly? end = start?.AddHours(hours);
+
+        var entry = new OtEntry
+        {
+            Id = _existingEntry?.Id ?? Guid.NewGuid().ToString("N"),
+            Date = _selectedDate.Value,
+            StartTime = start,
+            EndTime = end,
+            Hours = hours,
+            Task = string.IsNullOrWhiteSpace(_form.Task) ? "OT" : _form.Task.Trim(),
+        };
+
+        await NoteService.SaveEntryAsync(entry);
+        await LoadMonthAsync();
+        _existingEntry = entry;
+        _isEditing = false;
+    }
+
+    private async Task DeleteEntry()
+    {
+        if (_selectedDate is null) return;
+        await NoteService.DeleteEntryForDateAsync(_selectedDate.Value);
+        await LoadMonthAsync();
+        _existingEntry = null;
+        _isEditing = false;
+        ResetForm();
+    }
+}
