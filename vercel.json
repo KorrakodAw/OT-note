@@ -1,7 +1,0 @@
-{
-  "buildCommand": "echo 'static output already built into dist/'",
-  "outputDirectory": "dist",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
