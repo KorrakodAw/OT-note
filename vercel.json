@@ -1,6 +1,6 @@
 {
-  "buildCommand": "curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 10.0 --install-dir ./dotnet-sdk && ./dotnet-sdk/dotnet publish -c Release -o publish",
-  "outputDirectory": "publish/wwwroot",
+  "buildCommand": "echo 'static output already built into dist/'",
+  "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
