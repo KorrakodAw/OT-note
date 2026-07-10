@@ -4,25 +4,26 @@ import { OtEntry } from "@/lib/types";
 import { toDateKey } from "@/lib/period";
 
 interface CalendarProps {
-  year: number;
-  month: number; // 0-based
+  dates: Date[]; // 21st of the cycle month through the 20th of the next, inclusive
   entriesByDate: Record<string, OtEntry>;
   todayKey: string;
   onSelectDay: (dateKey: string) => void;
 }
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
-export default function Calendar({ year, month, entriesByDate, todayKey, onSelectDay }: CalendarProps) {
-  const firstOfMonth = new Date(year, month, 1);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const leadingBlanks = firstOfMonth.getDay();
-  const totalCells = Math.ceil((leadingBlanks + daysInMonth) / 7) * 7;
+export default function Calendar({ dates, entriesByDate, todayKey, onSelectDay }: CalendarProps) {
+  const leadingBlanks = dates.length > 0 ? dates[0].getDay() : 0;
+  const totalCells = Math.ceil((leadingBlanks + dates.length) / 7) * 7;
 
   const cells = Array.from({ length: totalCells }, (_, i) => {
-    const dayNumber = i - leadingBlanks + 1;
-    if (dayNumber < 1 || dayNumber > daysInMonth) return null;
-    return dayNumber;
+    const dateIndex = i - leadingBlanks;
+    if (dateIndex < 0 || dateIndex >= dates.length) return null;
+    return dates[dateIndex];
   });
 
   return (
@@ -35,14 +36,15 @@ export default function Calendar({ year, month, entriesByDate, todayKey, onSelec
         ))}
       </div>
       <div className="grid grid-cols-7 gap-1">
-        {cells.map((day, idx) => {
-          if (day === null) {
+        {cells.map((date, idx) => {
+          if (date === null) {
             return <div key={idx} className="aspect-square rounded-lg" />;
           }
-          const dateKey = toDateKey(year, month, day);
+          const dateKey = toDateKey(date.getFullYear(), date.getMonth(), date.getDate());
           const entry = entriesByDate[dateKey];
           const isToday = dateKey === todayKey;
           const isWeekend = idx % 7 === 0 || idx % 7 === 6;
+          const isMonthStart = date.getDate() === 1;
 
           return (
             <button
@@ -55,12 +57,17 @@ export default function Calendar({ year, month, entriesByDate, todayKey, onSelec
                   : "border-slate-200 bg-white hover:bg-slate-50"
               } ${isToday ? "ring-2 ring-brand-500" : ""}`}
             >
+              {isMonthStart && (
+                <span className="text-[9px] font-semibold uppercase text-slate-400">
+                  {MONTH_SHORT[date.getMonth()]}
+                </span>
+              )}
               <span
                 className={`font-medium ${
                   entry ? "text-green-700" : isWeekend ? "text-red-500" : "text-slate-700"
                 }`}
               >
-                {day}
+                {date.getDate()}
               </span>
               {entry && (
                 <span className="mt-0.5 flex max-w-full flex-col items-center gap-0.5 rounded bg-green-500 px-1 text-[10px] font-semibold text-white">

@@ -47,7 +47,7 @@ export default function SalaryPage() {
       <div className="rounded-xl bg-white p-4 shadow-sm">
         <h2 className="mb-3 text-base font-semibold text-slate-800">Pay period</h2>
         <p className="mb-3 text-xs text-slate-500">
-          Defaults to the 21st of one month through the 21st of the next. Adjust if needed.
+          Defaults to the 21st of one month through the 20th of the next. Adjust if needed.
         </p>
         <div className="grid grid-cols-2 gap-3">
           <label className="text-sm">
